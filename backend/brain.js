@@ -1,9 +1,7 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generate } from "./llm.js";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 // ---------- settings ----------
 export async function getSettings() {
@@ -127,15 +125,15 @@ export async function chat({ message, role = "owner", contactId = "dashboard-own
 
   const { data: hist } = await supabase.from("ultron_messages").select("role,content")
     .eq("contact_id", contactId).order("created_at", { ascending: false }).limit(12);
-  const contents = (hist || []).reverse().map((m) => ({
+  let history = (hist || []).reverse().map((m) => ({
     role: m.role === "ultron" ? "model" : "user",
-    parts: [{ text: m.content }],
+    text: m.content,
   }));
-  contents.push({ role: "user", parts: [{ text: message }] });
+  while (history.length && history[0].role === "model") history.shift(); // must start with the user
 
-  const model = genAI.getGenerativeModel({ model: MODEL, systemInstruction: system });
-  const result = await model.generateContent({ contents });
-  const reply = result.response.text().trim() || "...";
+  const { text, via } = await generate(system, history, message);
+  const reply = text || "...";
+  console.log(`[chat] replied via ${via}`);
 
   // Dashboard test chat always saves. Owner messages elsewhere are saved only if style
   // learning is on; other people's messages only if history is on.
